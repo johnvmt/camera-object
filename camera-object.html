@@ -1,0 +1,191 @@
+<template>
+	<div style="height: 100%; width: 100%; background-size: 100% 100%;"></div>
+</template>
+
+<!--ThreeJS-->
+<script src="js/three.min.js"></script>
+<script src="js/ColladaLoader.js"></script>
+<script src="js/Detector.js"></script>
+
+<script>
+	(function(window, document) {
+		// this html page
+		var componentDoc =  (document._currentScript || document.currentScript).ownerDocument;
+		var componentDir = componentDoc.baseURI.substring(0, componentDoc.baseURI.lastIndexOf('/'));
+
+		// Gets content from <template>
+		var template = componentDoc.querySelector('template').content;
+
+		// Creates an object based in the HTML Element prototype
+		var ElementProto = Object.create(HTMLElement.prototype);
+
+		// Fires when an instance of the element is created
+		ElementProto.createdCallback = function() {
+			var self = this;
+
+			// Creates the shadow root
+			self.shadowRoot = self.createShadowRoot();
+
+			// Adds a template clone into shadow root
+			self.shadowRoot.appendChild(document.importNode(template, true));
+
+			// get params from camera-object element
+			var elementAttributeDefaults = {
+				objectpositionx: 0,
+				objectpositiony: 0,
+				objectpositionz: 0,
+				objectrotationx: 0,
+				objectrotationy: 0,
+				objectrotationz: 0,
+				objectopacity: 1,
+				camerapositionx: 0,
+				camerapositiony: 0,
+				camerapositionz: 0,
+				camerarotationx: 0,
+				camerarotationy: 0,
+				camerarotationz: 0
+			};
+			self.elementAttributes = objectExtend(elementAttributeDefaults, self.getAttributes());
+
+			var threejsContainer = self.shadowRoot.querySelector('div');
+
+			// set background color and/or image
+			if(typeof self.elementAttributes['background-image'] === "string")
+				threejsContainer.style['background-image'] = 'url("' + self.elementAttributes['background-image'] + '")';
+			if(typeof self.elementAttributes['background-color'] === "string")
+				threejsContainer.style['background-color'] = self.elementAttributes['background-color'];
+
+			var outputCamera, outputScene, camera, scene, renderer, dae, texture;
+
+			colladaLoad(self.elementAttributes.src, function(collada) {
+				dae = collada;
+				var containerWidth = threejsContainer.offsetWidth;
+				var containerHeight = threejsContainer.offsetHeight;
+
+				camera = new THREE.PerspectiveCamera(45, containerWidth / containerHeight, 1, 10000);
+				scene = new THREE.Scene();
+
+				scene.add(collada); // Add the COLLADA
+				scene.add(new THREE.AmbientLight(0xcccccc)); // Let there be light
+
+				// Adds some texture when rotating
+				// TODO allow lights to be added as children of the master element
+				var light = new THREE.SpotLight(0x757575, 1.5);
+				light.position.set(1000, 1000, 2000);
+				scene.add(light);
+
+				renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+				renderer.setPixelRatio(window.devicePixelRatio);
+				renderer.autoClear = false;
+				renderer.setSize(containerWidth, containerHeight);
+
+				threejsContainer.appendChild(renderer.domElement);
+
+				window.addEventListener('resize', onWindowResize, false);
+
+				animate();
+			});
+
+			function colladaLoad(src, callback) {
+				var loader = new THREE.ColladaLoader();
+				loader.options.convertUpAxis = true;
+				loader.load(src, function(collada) {
+					collada.scene.traverse(function (child) {
+						if(child instanceof THREE.SkinnedMesh) {
+							var animation = new THREE.Animation(child, child.geometry.animation);
+							animation.play();
+						}
+					});
+
+					// collada.scene.scale.x = collada.scene.scale.y = collada.scene.scale.z = 1;
+
+					collada.scene.updateMatrix();
+					callback(collada.scene);
+				});
+			}
+
+			function setOpacity(opacity) {
+				threejsContainer.querySelector('canvas').style.opacity = opacity;
+			}
+
+			function onWindowResize() {
+				camera.aspect = threejsContainer.offsetWidth / threejsContainer.offsetHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( threejsContainer.offsetWidth, threejsContainer.offsetHeight );
+			}
+
+			function animate() {
+				requestAnimationFrame(animate);
+				render();
+			}
+
+			var clock = new THREE.Clock();
+
+			function render() {
+
+				setOpacity(self.elementAttributes.objectopacity);
+
+				dae.position.x = self.elementAttributes.objectpositionx;
+				dae.position.y = self.elementAttributes.objectpositiony;
+				dae.position.z = self.elementAttributes.objectpositionz;
+
+				dae.rotation.x = degreesToRadians(self.elementAttributes.objectrotationx);
+				dae.rotation.y = degreesToRadians(self.elementAttributes.objectrotationy);
+				dae.rotation.z = degreesToRadians(self.elementAttributes.objectrotationz);
+
+				camera.position.x = self.elementAttributes.camerapositionx;
+				camera.position.y = self.elementAttributes.camerapositiony;
+				camera.position.z = self.elementAttributes.camerapositionz;
+
+				camera.rotation.x = degreesToRadians(self.elementAttributes.camerarotationx);
+				camera.rotation.y = degreesToRadians(self.elementAttributes.camerarotationy);
+				camera.rotation.z = degreesToRadians(self.elementAttributes.camerarotationz);
+
+				THREE.AnimationHandler.update( clock.getDelta() );
+				renderer.render(scene, camera);
+			}
+		};
+
+		// Fires when an attribute was added, removed, or updated
+		ElementProto.attributeChangedCallback = function(attr, oldVal, newVal) {
+			// TODO when some camera value changes, step out of active view
+			this.elementAttributes[attr] = newVal;
+		};
+
+		ElementProto.getAttributes = function() {
+			var attributes = {};
+			for(var ctr = 0; ctr < this.attributes.length; ctr++) {
+				attributes[this.attributes[ctr].nodeName] = this.attributes[ctr].nodeValue;
+			}
+			return attributes;
+		};
+
+		function objectExtend() {
+			var merged = {};
+			objectForEach(arguments, function(argument) {
+				for (var attrname in argument) {
+					if(argument.hasOwnProperty(attrname))
+						merged[attrname] = argument[attrname];
+				}
+			});
+			return merged;
+
+			function objectForEach(object, callback) {
+				// run function on each property (child) of object
+				var property;
+				for(property in object) { // pull keys before looping through?
+					if (object.hasOwnProperty(property))
+						callback(object[property], property, object);
+				}
+			}
+		}
+
+		function degreesToRadians(degrees) {
+			return degrees * (Math.PI / 180);
+		}
+
+		window.CameraObject = document.registerElement('camera-object', {
+			prototype: ElementProto
+		});
+	})(window, document);
+</script>
